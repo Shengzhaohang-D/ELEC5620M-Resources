@@ -41,7 +41,8 @@
 #define LT24_YELLOW  (LT24_RED | LT24_GREEN)
 #define LT24_CYAN    (LT24_GREEN | LT24_BLUE)
 #define LT24_MAGENTA (LT24_BLUE | LT24_RED)
-
+//designed by ShengzhaohangD
+#define LT24_BROWN   (0xC400)
 
 //Function to initialise the LCD
 // - Returns 0 if successful
@@ -82,6 +83,10 @@ signed int LT24_copyFrameBuffer(const unsigned short* framebuffer, unsigned int 
 // - returns 0 if successful
 signed int LT24_drawPixel(unsigned short colour,unsigned int x,unsigned int y);
 
+
+
+/////////////////
+signed int draw_colourBars(unsigned int xleft, unsigned int ytop, unsigned int width, unsigned int height,unsigned short colour);
 
 #endif /*DE1SoC_LT24_H_*/
 

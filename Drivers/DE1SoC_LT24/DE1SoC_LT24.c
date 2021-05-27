@@ -2,6 +2,8 @@
 #include "DE1SoC_LT24.h"
 #include "../HPS_Watchdog/HPS_Watchdog.h"
 #include "../HPS_usleep/HPS_usleep.h" //some useful delay routines
+//edit be Shengzhaohang D
+#include "WordLib.h"
 
 //
 // Driver global static variables (visible only to this .c file)
@@ -205,6 +207,9 @@ bool LT24_isInitialised() {
     return lt24_initialised;
 }
 
+//Dedicated hardware control for using LT24
+//Referred from previous projects
+//written by the teaching staff
 #ifdef HARDWARE_OPTIMISED
 //If HARDWARE_OPTIMISED is defined, use this optimised function. It will be discussed in the lab on LCDs.
 
@@ -279,6 +284,7 @@ signed int LT24_clearDisplay(unsigned short colour)
     ResetWDT();
     //Define window as entire display (LT24_setWindow will check if we are initialised).
     status = LT24_setWindow(0, 0, LT24_WIDTH, LT24_HEIGHT);
+//    status = LT24_setWindow(0, 319, LT24_WIDTH, LT24_HEIGHT);
     if (status != LT24_SUCCESS) return status;
     //Loop through each pixel in the window writing the required colour
     for(idx=0;idx<(LT24_WIDTH*LT24_HEIGHT);idx++)
@@ -315,6 +321,42 @@ signed int LT24_setWindow( unsigned int xleft, unsigned int ytop, unsigned int w
     //Ensure start coordinates are in range (top left must be <= bottom right)
     if (xleft > xright) return LT24_INVALIDSHAPE; //Invalid shape
     if (ytop > ybottom) return LT24_INVALIDSHAPE; //Invalid shape
+    //Define the left and right of the display
+    LT24_write(false, 0x002A);
+    LT24_write(true , (xleft >> 8) & 0xFF);
+    LT24_write(true , xleft & 0xFF);
+    LT24_write(true , (xright >> 8) & 0xFF);
+    LT24_write(true , xright & 0xFF);
+    //Define the top and bottom of the display
+    LT24_write(false, 0x002B);
+    LT24_write(true , (ytop >> 8) & 0xFF);
+    LT24_write(true , ytop & 0xFF);
+    LT24_write(true , (ybottom >> 8) & 0xFF);
+    LT24_write(true , ybottom & 0xFF);
+    //Create window and prepare for data
+    LT24_write(false, 0x002c);
+    //Done
+    return LT24_SUCCESS;
+}
+//landscape display
+//Function to set the drawing window on the display
+//  Returns 0 if successful
+signed int LT24_setWindowY( unsigned int xleft, unsigned int ytop, unsigned int width, unsigned int height) {
+    unsigned int xright, ybottom;			//The last bit of the screen
+    if (!LT24_isInitialised()) return LT24_ERRORNOINIT; //Don't run if not yet initialised (if the LCD has been initialized)
+
+    //Calculate bottom right corner location
+    xright = xleft + width - 1;			//The x value of the last bit
+    ybottom = ytop + height - 1;		//The y value of the last bit
+
+    //Ensure end coordinates are in range
+    if (xright >= LT24_WIDTH)   return LT24_INVALIDSIZE; //Invalid size
+    if (ybottom >= LT24_HEIGHT) return LT24_INVALIDSIZE; //Invalid size
+
+    //Ensure start coordinates are in range (top left must be <= bottom right)
+    if (xleft > xright) return LT24_INVALIDSHAPE; //Invalid shape
+    if (ytop > ybottom) return LT24_INVALIDSHAPE; //Invalid shape
+
     //Define the left and right of the display
     LT24_write(false, 0x002A);
     LT24_write(true , (xleft >> 8) & 0xFF);
@@ -464,4 +506,135 @@ signed int LT24_drawPixel(unsigned short colour,unsigned int x,unsigned int y)
     LT24_write(true, colour);                    //Write one pixel of colour data
     return LT24_SUCCESS;                         //And Done
 }
+
+//====================================================custom functions==================================================================================//
+
+
+///////////////////////////////////
+//draw a circle
+//(x,y)is the site of the circle center
+//radius is the the radius
+signed int draw_HollowCircle(unsigned int x, unsigned int y, unsigned int radius,unsigned short colour){
+		int a,b;
+		int di;
+		a=0;b=radius;
+		di=3-(radius<<1);             //the flag used to determine the next site
+		while(a<=b)
+		{
+			LT24_drawPixel(colour,x+a,y-b);             //5
+	 		LT24_drawPixel(colour,x+b,y-a);             //0
+			LT24_drawPixel(colour,x+b,y+a);             //4
+			LT24_drawPixel(colour,x+a,y+b);             //6
+			LT24_drawPixel(colour,x-a,y+b);             //1
+	 		LT24_drawPixel(colour,x-b,y+a);
+			LT24_drawPixel(colour,x-a,y-b);             //2
+	  		LT24_drawPixel(colour,x-b,y-a);             //7
+			a++;
+			//Bresenham algorithm method implemented to realize the drawing the circle
+			if(di<0)di +=4*a+6;
+			else
+			{
+				di+=10+4*(a-b);
+				b--;
+			}
+		}
+    return LT24_SUCCESS;
+}
+
+//Internal function to generate colour bars of test pattern
+signed int draw_colourBars(unsigned int xleft, unsigned int ytop, unsigned int width, unsigned int height,unsigned short colour){
+    signed int status;
+	unsigned int i, j;
+  //  unsigned short colour = LT24_MAGENTA;
+    //Reset watchdog
+    ResetWDT();
+    //Define Window
+    status = LT24_setWindow(xleft,ytop,width,height);
+    if (status != LT24_SUCCESS) return status;
+    //Generate Colour Bars
+    for (j = 0;j < height;j++){
+        for (i = 0;i < width;i++){
+            LT24_write(true, colour);
+        }
+    }
+
+    //Done
+    return LT24_SUCCESS;
+}
+
+//draw a single word(character)
+/*
+ * x			: x axis
+ * y 			: y axis
+ * Character	: the character need to be shown
+ * size         : the size of the character
+ * mode			: the ways of showing character
+ * 				  mode = 1: only draw the point of the character
+ * 				  mode = 0: the reset point of the window which use to draw the character,
+ * 				  			will be drawn in set colour
+ * */
+void draw_SingleChar(int x, int y, short Character,short size, short mode){
+	short temp,t;
+	short t1;
+	int y0 = y;
+	short char_size = (size/8+((size%8)?1:0))*(size/2);
+//ASCII word library start from ' ',
+//so minus the value of the ' ' to
+//gain the really value of character needed
+	Character = Character - ' ';
+
+	for(t=0;t<char_size;t++)
+	{
+		if(size==12)temp=size_12_Char[Character][t];			//call the character library
+		else if(size==16)temp=size_16_Char[Character][t];
+		else return;											//invalid size
+		for(t1=0;t1<8;t1++)
+		{
+			if(temp&0x80)LT24_drawPixel(0xFFFF,x,y);
+			else if(mode==0)LT24_drawPixel(0x0000,x,y);
+			temp<<=1;
+			y++;
+			if(y>=319)return;		//beyond the border of the screen
+			if((y-y0)==size)
+			{
+				y=y0;
+				x++;
+				if(x>=239)return;	//beyond the border of the screen
+				break;
+			}
+		}
+	}
+}
+
+//draw the word(string )
+void LCD_ShowString(int x,int y,int width,int height,short size,char *address_String)
+{
+	short x_temp=x;
+//set the display area
+	width+=x;
+	height+=y;
+
+//judge if the character of the string
+//is in range of the word library
+    while((*address_String>=' ')&&(*address_String<='~'))
+    {
+        if(x>=width){x=x_temp;y+=size;}
+        if(y>=height)break;
+        draw_SingleChar(x,y,*address_String,size,1);
+        x+=size/2;
+        address_String++;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
